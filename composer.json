@@ -1,5 +1,5 @@
 {
-    "name": "qiangvei/apishipping",
+    "name": "qiangvei/api-shipping",
     "description": "magento 2 extension.",
     "type": "magento2-module",
     "require": {
@@ -12,7 +12,7 @@
             "registration.php"
         ],
         "psr-4": {
-            "Qiangvei\\ApiShipping\\": "src/"
+            "Qiangvei\\ApiShipping\\": ""
         }
     },
     "authors": [
