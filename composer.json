@@ -1,0 +1,25 @@
+{
+    "name": "qiangvei/apishipping",
+    "description": "magento 2 extension.",
+    "type": "magento2-module",
+    "require": {
+        "php-curl-class/php-curl-class": "^9.4"
+    },
+    "version": "1.0.0",
+    "license": "MIT",
+    "autoload": {
+        "files": [
+            "registration.php"
+        ],
+        "psr-4": {
+            "Qiangvei\\ApiShipping\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "qiangvei",
+            "email": "qiangvei@hotmail.com"
+        }
+    ],
+    "minimum-stability": "stable"
+}
