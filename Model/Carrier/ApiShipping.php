@@ -72,10 +72,13 @@ class ApiShipping extends AbstractCarrier implements CarrierInterface
         $req['OrigPostcode'] = $request->getOrigPostcode();
         $ch = new \Curl\Curl();
         $res = [];
+
+        $time = time();
+        $token = md5(md5($this->getConfigData('username').$this->getConfigData('password').$time).$time);
         $ch->get($endpoint,[
-            'info'=>json_encode($req),
-            'username'=>$this->getConfigData('username'),
-            'password'=>$this->getConfigData('password')]);
+            'data'=>json_encode($req),
+            'token'=>$token,
+            'time'=>$time]);
         if (!$ch->error) {
             $res = $ch->response;
         }
