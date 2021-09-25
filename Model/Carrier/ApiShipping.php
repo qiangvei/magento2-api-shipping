@@ -70,6 +70,7 @@ class ApiShipping extends AbstractCarrier implements CarrierInterface
         $req['OrigRegionId'] = $request->getOrigRegionId();
         $req['OrigCity'] = $request->getOrigCity();
         $req['OrigPostcode'] = $request->getOrigPostcode();
+        $req['WeightUnit'] = $this->getWeightUnit();
         $ch = new \Curl\Curl();
         $res = [];
 
@@ -107,5 +108,13 @@ class ApiShipping extends AbstractCarrier implements CarrierInterface
     public function getAllowedMethods()
     {
         return ['apishipping'=>$this->getConfigData('name')];
+    }
+
+    public function getWeightUnit()
+    {
+        return $this->_scopeConfig->getValue(
+            'general/locale/weight_unit',
+            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
+        );
     }
 }
