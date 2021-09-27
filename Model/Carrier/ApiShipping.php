@@ -83,7 +83,6 @@ class ApiShipping extends AbstractCarrier implements CarrierInterface
         if (!$ch->error) {
             $res = $ch->response;
         }
-
         $carriers = json_decode($res,true);
 
         if(is_array($carriers) && count($carriers)>0){
