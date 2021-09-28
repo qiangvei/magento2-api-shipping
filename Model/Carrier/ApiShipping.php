@@ -72,6 +72,7 @@ class ApiShipping extends AbstractCarrier implements CarrierInterface
         $req['OrigPostcode'] = $request->getOrigPostcode();
         $req['WeightUnit'] = $this->getWeightUnit();
         $ch = new \Curl\Curl();
+
         $res = [];
 
         $time = time();
@@ -82,9 +83,16 @@ class ApiShipping extends AbstractCarrier implements CarrierInterface
             'time'=>$time]);
         if (!$ch->error) {
             $res = $ch->response;
+            $res = json_decode($res);
         }
-        $carriers = json_decode($res,true);
-
+        $carrier = [];
+        $carriers = [];
+        foreach ($res as $v){
+            foreach ($v as $kk=>$vv){
+                $carrier[$kk] = $vv;
+            }
+            $carriers[] = $carrier;
+        }
         if(is_array($carriers) && count($carriers)>0){
             foreach ($carriers as $item){
                 $method = $this->methodFactory->create();
