@@ -18,6 +18,8 @@ class ApiShipping extends AbstractCarrier implements CarrierInterface
      */
     protected $methodFactory;
 
+    protected $rateRequest;
+    protected $apiShippingData = [];
     public function __construct(
         \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
         \Magento\Quote\Model\Quote\Address\RateResult\ErrorFactory $rateErrorFactory,
@@ -39,12 +41,51 @@ class ApiShipping extends AbstractCarrier implements CarrierInterface
 
         /** @var \Magento\Shipping\Model\Rate\Result $result */
         $result = $this->resultFactory->create();
+        $this->rateRequest = $request;
+        $carriers = $this->getApiShipping();
 
-        $endpoint = $this->getConfigData('api_endpoint');
-        if(!trim($endpoint)){
-            return false;
+        if(is_array($carriers) && count($carriers)>0){
+            foreach ($carriers as $item){
+                $method = $this->methodFactory->create();
+                //$method->setCarrier($item['CarrierCode']);
+                $method->setCarrier($this->getCarrierCode());
+                $method->setCarrierTitle($item['CarrierTitle']);
+                $method->setMethod($item['MethodCode']);
+                $method->setMethodTitle($item['MethodTitle']);
+                $cost = $item['Price'];
+                $shippingPrice = $this->getFinalPriceWithHandlingFee($cost);
+                $method->setPrice($shippingPrice);
+                $method->setCost($cost);
+                $result->append($method);
+            }
         }
 
+        return $result;
+    }
+
+    public function getAllowedMethods()
+    {
+        $allows = [];
+        if(count($this->apiShippingData)>0){
+            foreach ($this->apiShippingData as $item){
+                $allows[$item['MethodCode']] = $item['MethodTitle'];
+            }
+        }
+        return $allows;
+        //return ['apishipping'=>$this->getConfigData('name')];
+    }
+
+    /**在collectRates(RateRequest $request)比 getAllowedMethods() 先执行的情况下有效。
+     * 如果数据正常的情况下，获取不到物流报价，则可能是此问题，即 $this->rateRequest 没有被赋值，接口服务器返回空数据。
+     * @return array
+     */
+    public function getApiShipping(){
+        if(count($this->apiShippingData)>0){ return $this->apiShippingData;}
+        $endpoint = $this->getConfigData('api_endpoint');
+        if(!trim($endpoint)){
+            return $this->apiShippingData;
+        }
+        $request = $this->rateRequest;
         $req = [];
         $req['AllItems'] = $request->getAllItems();
         $req['BaseCurrency'] = $request->getBaseCurrency();
@@ -93,28 +134,8 @@ class ApiShipping extends AbstractCarrier implements CarrierInterface
             }
             $carriers[] = $carrier;
         }
-        if(is_array($carriers) && count($carriers)>0){
-            foreach ($carriers as $item){
-                $method = $this->methodFactory->create();
-                //$method->setCarrier($item['CarrierCode']);
-                $method->setCarrier($this->getCarrierCode());
-                $method->setCarrierTitle($item['CarrierTitle']);
-                $method->setMethod($item['MethodCode']);
-                $method->setMethodTitle($item['MethodTitle']);
-                $cost = $item['Price'];
-                $shippingPrice = $this->getFinalPriceWithHandlingFee($cost);
-                $method->setPrice($shippingPrice);
-                $method->setCost($cost);
-                $result->append($method);
-            }
-        }
-
-        return $result;
-    }
-
-    public function getAllowedMethods()
-    {
-        return ['apishipping'=>$this->getConfigData('name')];
+        $this->apiShippingData = $carriers;
+        return $this->apiShippingData;
     }
 
     public function getWeightUnit()

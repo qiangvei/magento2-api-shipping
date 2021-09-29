@@ -4,7 +4,7 @@
         <carriers>
             <apishipping>
                 <active>0</active>
-                <name>Api Shipping</name>
+                <title>Api Shipping</title>
                 <sallowspecific>0</sallowspecific>
                 <model>Qiangvei\ApiShipping\Model\Carrier\ApiShipping</model>
                 <api_endpoint>http://localhost/api</api_endpoint>
