@@ -6,7 +6,15 @@ namespace Composer\Autoload;
 
 class ComposerStaticInitf767c5439d3e2422a51941ea7eab06f0
 {
+    public static $files = array (
+        '4f36be62e55656ef7cc4b30640f3aa23' => __DIR__ . '/../..' . '/registration.php',
+    );
+
     public static $prefixLengthsPsr4 = array (
+        'Q' => 
+        array (
+            'Qiangvei\\ApiShipping\\' => 21,
+        ),
         'C' => 
         array (
             'Curl\\' => 5,
@@ -14,6 +22,10 @@ class ComposerStaticInitf767c5439d3e2422a51941ea7eab06f0
     );
 
     public static $prefixDirsPsr4 = array (
+        'Qiangvei\\ApiShipping\\' => 
+        array (
+            0 => __DIR__ . '/../..' . '/',
+        ),
         'Curl\\' => 
         array (
             0 => __DIR__ . '/..' . '/php-curl-class/php-curl-class/src/Curl',

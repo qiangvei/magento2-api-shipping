@@ -8,7 +8,7 @@ use Curl\Url;
 
 class Curl
 {
-    const VERSION = '9.4.0';
+    const VERSION = '9.6.1';
     const DEFAULT_TIMEOUT = 30;
 
     public $curl = null;
@@ -27,7 +27,8 @@ class Curl
     public $httpErrorMessage = null;
 
     public $url = null;
-    public $requestHeaders = null;
+    public $requestHeaders = [];
+
     public $responseHeaders = null;
     public $rawResponseHeaders = '';
     public $responseCookies = [];
@@ -51,6 +52,7 @@ class Curl
     public $jsonDecoder = null;
     public $xmlDecoder = null;
 
+    private $headerCallbackData;
     private $cookies = [];
     private $headers = [];
     private $options = [];
@@ -184,7 +186,29 @@ class Curl
                 !isset($this->headers['Content-Type']) ||
                 !preg_match('/^multipart\/form-data/', $this->headers['Content-Type'])
             )) {
-            $data = http_build_query($data, '', '&');
+            // Avoid using http_build_query() as keys with null values are
+            // unexpectedly excluded from the resulting string.
+            //
+            // http_build_query(['a' => '1', 'b' => null, 'c' => '3']);
+            // >> "a=1&c=3"
+            // http_build_query(['a' => '1', 'b' => '',   'c' => '3']);
+            // >> "a=1&b=&c=3"
+            //
+            // $data = http_build_query($data, '', '&');
+            $data = implode('&', array_map(function ($k, $v) {
+                // Encode keys and values using urlencode() to match the default
+                // behavior http_build_query() where $encoding_type is
+                // PHP_QUERY_RFC1738.
+                //
+                // Use strval() as urlencode() expects a string parameter:
+                //   TypeError: urlencode() expects parameter 1 to be string, integer given
+                //   TypeError: urlencode() expects parameter 1 to be string, null given
+                //
+                // php_raw_url_encode()
+                // php_url_encode()
+                // https://github.com/php/php-src/blob/master/ext/standard/http.c
+                return urlencode($k) . '=' . urlencode(strval($v));
+            }, array_keys($data), array_values($data)));
         }
 
         return $data;
@@ -221,6 +245,7 @@ class Curl
         $this->jsonDecoderArgs = null;
         $this->xmlDecoder = null;
         $this->xmlDecoderArgs = null;
+        $this->headerCallbackData = null;
         $this->defaultDecoder = null;
     }
 
@@ -476,14 +501,23 @@ class Curl
         }
         $this->curlError = $this->curlErrorCode !== 0;
 
+        // Ensure Curl::rawResponse is a string as curl_exec() can return false.
+        // Without this, calling strlen($curl->rawResponse) will error when the
+        // strict types setting is enabled.
+        if (!is_string($this->rawResponse)) {
+            $this->rawResponse = '';
+        }
+
         // Transfer the header callback data and release the temporary store to avoid memory leak.
         $this->rawResponseHeaders = $this->headerCallbackData->rawResponseHeaders;
         $this->responseCookies = $this->headerCallbackData->responseCookies;
         $this->headerCallbackData->rawResponseHeaders = '';
         $this->headerCallbackData->responseCookies = [];
+        $this->headerCallbackData->stopRequestDecider = null;
+        $this->headerCallbackData->stopRequest = false;
 
         // Include additional error code information in error message when possible.
-        if ($this->curlError && function_exists('curl_strerror')) {
+        if ($this->curlError) {
             $this->curlErrorMessage =
                 curl_strerror($this->curlErrorCode) . (
                     empty($this->curlErrorMessage) ? '' : ': ' . $this->curlErrorMessage
@@ -707,12 +741,17 @@ class Curl
 
         $this->setUrl($url);
 
+        // Set the request method to "POST" when following a 303 redirect with
+        // an additional POST request is desired. This is equivalent to setting
+        // the -X, --request command line option where curl won't change the
+        // request method according to the HTTP 30x response code.
         if ($follow_303_with_post) {
             $this->setOpt(CURLOPT_CUSTOMREQUEST, 'POST');
-        } else {
-            if (isset($this->options[CURLOPT_CUSTOMREQUEST])) {
-                $this->setOpt(CURLOPT_CUSTOMREQUEST, null);
-            }
+        } elseif (isset($this->options[CURLOPT_CUSTOMREQUEST])) {
+            // Unset the CURLOPT_CUSTOMREQUEST option so that curl does not use
+            // a POST request after a post/redirect/get redirection. Without
+            // this, curl will use the method string specified for all requests.
+            $this->setOpt(CURLOPT_CUSTOMREQUEST, null);
         }
 
         $this->setOpt(CURLOPT_POST, true);
@@ -1412,7 +1451,7 @@ class Curl
      *
      * @access public
      * @param  bool $on
-     * @param  resource $output
+     * @param  resource|string $output
      */
     public function verbose($on = true, $output = 'STDERR')
     {
@@ -1459,8 +1498,10 @@ class Curl
             $request_url = $this->getOpt(CURLOPT_URL);
             $request_headers_count = count($this->requestHeaders);
             $request_body_empty = empty($this->getOpt(CURLOPT_POSTFIELDS));
-            $response_length = isset($this->responseHeaders['Content-Length']) ?
-                $this->responseHeaders['Content-Length'] : '(not specified in response)';
+            $response_header_length = isset($this->responseHeaders['Content-Length']) ?
+                $this->responseHeaders['Content-Length'] : '(not specified in response header)';
+            $response_calculated_length = is_string($this->rawResponse) ?
+                strlen($this->rawResponse) : '(' . var_export($this->rawResponse, true) . ')';
             $response_headers_count = count($this->responseHeaders);
 
             echo
@@ -1468,7 +1509,7 @@ class Curl
                 'Request contained ' . $request_headers_count . ' ' . (
                     $request_headers_count === 1 ? 'header:' : 'headers:'
                 ) . "\n";
-            if ($this->requestHeaders !== null) {
+            if ($request_headers_count) {
                 $i = 1;
                 foreach ($this->requestHeaders as $key => $value) {
                     echo '    ' . $i . ' ' . $key . ': ' . $value . "\n";
@@ -1524,7 +1565,11 @@ class Curl
                 echo 'Received an empty response body (response="").' . "\n";
             } else {
                 echo 'Received a non-empty response body.' . "\n";
-                echo 'Response content length: ' . $response_length . "\n";
+                if (isset($this->responseHeaders['Content-Length'])) {
+                    echo 'Response content length (from content-length header): ' . $response_header_length . "\n";
+                } else {
+                    echo 'Response content length (calculated): ' . $response_calculated_length . "\n";
+                }
             }
         }
 
@@ -1545,7 +1590,7 @@ class Curl
      */
     public function reset()
     {
-        if (function_exists('curl_reset') && (is_resource($this->curl) || $this->curl instanceof \CurlHandle)) {
+        if (is_resource($this->curl) || $this->curl instanceof \CurlHandle) {
             curl_reset($this->curl);
         } else {
             $this->curl = curl_init();
@@ -1777,7 +1822,7 @@ class Curl
     public function __get($name)
     {
         $return = null;
-        if (in_array($name, self::$deferredProperties, true) && is_callable([$this, $getter = '__get_' . $name])) {
+        if (in_array($name, self::$deferredProperties, true) && is_callable([$this, $getter = '_get_' . $name])) {
             $return = $this->$name = $this->$getter();
         }
         return $return;
@@ -1788,7 +1833,7 @@ class Curl
      *
      * @access private
      */
-    private function __get_effectiveUrl()
+    private function _get_effectiveUrl()
     {
         return $this->getInfo(CURLINFO_EFFECTIVE_URL);
     }
@@ -1798,7 +1843,7 @@ class Curl
      *
      * @access private
      */
-    private function __get_rfc2616()
+    private function _get_rfc2616()
     {
         return array_fill_keys(self::$RFC2616, true);
     }
@@ -1808,7 +1853,7 @@ class Curl
      *
      * @access private
      */
-    private function __get_rfc6265()
+    private function _get_rfc6265()
     {
         return array_fill_keys(self::$RFC6265, true);
     }
@@ -1818,7 +1863,7 @@ class Curl
      *
      * @access private
      */
-    private function __get_totalTime()
+    private function _get_totalTime()
     {
         return $this->getInfo(CURLINFO_TOTAL_TIME);
     }
@@ -2042,7 +2087,10 @@ class Curl
         $header_callback_data = new \stdClass();
         $header_callback_data->rawResponseHeaders = '';
         $header_callback_data->responseCookies = [];
+        $header_callback_data->stopRequestDecider = null;
+        $header_callback_data->stopRequest = false;
         $this->headerCallbackData = $header_callback_data;
+        $this->setStop();
         $this->setOpt(CURLOPT_HEADERFUNCTION, createHeaderCallback($header_callback_data));
 
         $this->setOpt(CURLOPT_RETURNTRANSFER, true);
@@ -2051,6 +2099,49 @@ class Curl
         if ($base_url !== null) {
             $this->setUrl($base_url);
         }
+    }
+
+    /**
+     * Set Stop
+     *
+     * Specify a callable decider to stop the request early without waiting for
+     * the full response to be received.
+     *
+     * The callable is passed two parameters. The first is the cURL resource,
+     * the second is a string with header data. Both parameters match the
+     * parameters in the CURLOPT_HEADERFUNCTION callback.
+     *
+     * The callable must return a truthy value for the request to be stopped
+     * early.
+     *
+     * The callable may be set to null to avoid calling the stop request decider
+     * callback and instead just check the value of stopRequest for attempting
+     * to stop the request as used by Curl::stop().
+     *
+     * @access public
+     * @param  $callback callable|null
+     */
+    public function setStop($callback = null)
+    {
+        $this->headerCallbackData->stopRequestDecider = $callback;
+        $this->headerCallbackData->stopRequest = false;
+
+        $header_callback_data = $this->headerCallbackData;
+        $this->progress(createStopRequestFunction($header_callback_data));
+    }
+
+    /**
+     * Stop
+     *
+     * Attempt to stop request.
+     *
+     * Used by MultiCurl::stop() when making multiple parallel requests.
+     *
+     * @access public
+     */
+    public function stop()
+    {
+        $this->headerCallbackData->stopRequest = true;
     }
 }
 
@@ -2070,7 +2161,41 @@ function createHeaderCallback($header_callback_data) {
         if (preg_match('/^Set-Cookie:\s*([^=]+)=([^;]+)/mi', $header, $cookie) === 1) {
             $header_callback_data->responseCookies[$cookie[1]] = trim($cookie[2], " \n\r\t\0\x0B");
         }
+
+        if ($header_callback_data->stopRequestDecider !== null) {
+            $stop_request_decider = $header_callback_data->stopRequestDecider;
+            if ($stop_request_decider($ch, $header)) {
+                $header_callback_data->stopRequest = true;
+            }
+        }
+
         $header_callback_data->rawResponseHeaders .= $header;
         return strlen($header);
+    };
+}
+
+/**
+ * Create Stop Request Function
+ *
+ * Create a function for Curl::progress() that stops a request early when the
+ * stopRequest flag is on. Keep this function separate from the class to prevent
+ * a memory leak.
+ *
+ * @param  $header_callback_data
+ *
+ * @return callable
+ */
+function createStopRequestFunction($header_callback_data) {
+    return function (
+        $resource,
+        $download_size,
+        $downloaded,
+        $upload_size,
+        $uploaded
+    ) use (
+        $header_callback_data
+    ) {
+        // Abort the transfer when the stop request flag has been set by returning a non-zero value.
+        return $header_callback_data->stopRequest ? 1 : 0;
     };
 }

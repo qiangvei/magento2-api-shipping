@@ -2,17 +2,17 @@
     "packages": [
         {
             "name": "php-curl-class/php-curl-class",
-            "version": "9.4.0",
-            "version_normalized": "9.4.0.0",
+            "version": "9.6.1",
+            "version_normalized": "9.6.1.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/php-curl-class/php-curl-class.git",
-                "reference": "e6de01c8c3755d2b015195d671d22a3c71020d15"
+                "reference": "d453257b12c9999dc6dfcdb8e7a7d36958f67d86"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/php-curl-class/php-curl-class/zipball/e6de01c8c3755d2b015195d671d22a3c71020d15",
-                "reference": "e6de01c8c3755d2b015195d671d22a3c71020d15",
+                "url": "https://api.github.com/repos/php-curl-class/php-curl-class/zipball/d453257b12c9999dc6dfcdb8e7a7d36958f67d86",
+                "reference": "d453257b12c9999dc6dfcdb8e7a7d36958f67d86",
                 "shasum": "",
                 "mirrors": [
                     {
@@ -27,13 +27,15 @@
             },
             "require-dev": {
                 "ext-gd": "*",
+                "phpcompatibility/php-compatibility": "*",
                 "phpunit/phpunit": "*",
-                "squizlabs/php_codesniffer": "*"
+                "squizlabs/php_codesniffer": "*",
+                "vimeo/psalm": "*"
             },
             "suggest": {
                 "ext-mbstring": "*"
             },
-            "time": "2021-09-04T18:28:24+00:00",
+            "time": "2022-07-01T00:33:15+00:00",
             "type": "library",
             "installation-source": "dist",
             "autoload": {
@@ -76,7 +78,7 @@
             ],
             "support": {
                 "issues": "https://github.com/php-curl-class/php-curl-class/issues",
-                "source": "https://github.com/php-curl-class/php-curl-class/tree/9.4.0"
+                "source": "https://github.com/php-curl-class/php-curl-class/tree/9.6.1"
             },
             "install-path": "../php-curl-class/php-curl-class"
         }

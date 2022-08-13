@@ -13,13 +13,14 @@ class MultiCurl
     public $startTime = null;
     public $stopTime = null;
 
-    private $curls = [];
+    private $queuedCurls = [];
     private $activeCurls = [];
     private $isStarted = false;
     private $currentStartTime = null;
     private $currentRequestCount = 0;
     private $concurrency = 25;
     private $nextCurlId = 0;
+    private $preferRequestTimeAccuracy = false;
 
     private $rateLimit = null;
     private $rateLimitEnabled = false;
@@ -247,7 +248,7 @@ class MultiCurl
         }
 
         $this->queueHandle($curl);
-        $this->setUrl($url, $data);
+        $this->setUrl($url);
         $curl->setUrl($url);
         $curl->setOpt(CURLOPT_CUSTOMREQUEST, 'PATCH');
         $curl->setOpt(CURLOPT_POSTFIELDS, $curl->buildPostData($data));
@@ -261,7 +262,7 @@ class MultiCurl
      * @param  $url
      * @param  $data
      * @param  $follow_303_with_post
-     *     If true, will cause 303 redirections to be followed using GET requests (default: false).
+     *     If true, will cause 303 redirections to be followed using a POST request (default: false).
      *     Note: Redirections are only followed if the CURLOPT_FOLLOWLOCATION option is set to true.
      *
      * @return object
@@ -276,7 +277,7 @@ class MultiCurl
 
         $curl = new Curl($this->baseUrl);
         $this->queueHandle($curl);
-        $this->setUrl($url, $data);
+        $this->setUrl($url);
 
         if (is_array($data) && empty($data)) {
             $curl->removeHeader('Content-Length');
@@ -284,11 +285,11 @@ class MultiCurl
 
         $curl->setUrl($url);
 
-        /*
-         * For post-redirect-get requests, the CURLOPT_CUSTOMREQUEST option must not
-         * be set, otherwise cURL will perform POST requests for redirections.
-         */
-        if (!$follow_303_with_post) {
+        // Set the request method to "POST" when following a 303 redirect with
+        // an additional POST request is desired. This is equivalent to setting
+        // the -X, --request command line option where curl won't change the
+        // request method according to the HTTP 30x response code.
+        if ($follow_303_with_post) {
             $curl->setOpt(CURLOPT_CUSTOMREQUEST, 'POST');
         }
 
@@ -315,7 +316,7 @@ class MultiCurl
 
         $curl = new Curl($this->baseUrl);
         $this->queueHandle($curl);
-        $this->setUrl($url, $data);
+        $this->setUrl($url);
         $curl->setUrl($url);
         $curl->setOpt(CURLOPT_CUSTOMREQUEST, 'PUT');
         $put_data = $curl->buildPostData($data);
@@ -344,7 +345,7 @@ class MultiCurl
 
         $curl = new Curl($this->baseUrl);
         $this->queueHandle($curl);
-        $this->setUrl($url, $data);
+        $this->setUrl($url);
         $curl->setUrl($url);
         $curl->setOpt(CURLOPT_CUSTOMREQUEST, 'SEARCH');
         $put_data = $curl->buildPostData($data);
@@ -389,7 +390,7 @@ class MultiCurl
      */
     public function close()
     {
-        foreach ($this->curls as $curl) {
+        foreach ($this->queuedCurls as $curl) {
             $curl->close();
         }
 
@@ -738,7 +739,7 @@ class MultiCurl
         // existing instances when they have not already been set to avoid
         // unexpectedly changing the request url after is has been specified.
         if ($option === CURLOPT_URL) {
-            foreach ($this->curls as $curl_id => $curl) {
+            foreach ($this->queuedCurls as $curl_id => $curl) {
                 if (!isset($this->instanceSpecificOptions[$curl_id][$option]) ||
                     $this->instanceSpecificOptions[$curl_id][$option] === null) {
                     $this->instanceSpecificOptions[$curl_id][$option] = $value;
@@ -948,7 +949,7 @@ class MultiCurl
         $this->currentRequestCount = 0;
 
         do {
-            while (count($this->curls) &&
+            while (count($this->queuedCurls) &&
                 count($this->activeCurls) < $this->concurrency &&
                 (!$this->rateLimitEnabled || $this->hasRequestQuota())
             ) {
@@ -959,19 +960,43 @@ class MultiCurl
                 $this->waitUntilRequestQuotaAvailable();
             }
 
-            // Wait for activity on any curl_multi connection when curl_multi_select (libcurl) fails to correctly block.
-            // https://bugs.php.net/bug.php?id=63411
-            //
-            // Also, use a shorter curl_multi_select() timeout instead the default of one second. This allows pending
-            // requests to have more accurate start times. Without a shorter timeout, it can be nearly a full second
-            // before available request quota is rechecked and pending requests can be initialized.
-            if (curl_multi_select($this->multiCurl, 0.2) === -1) {
-                usleep(100000);
+            if ($this->preferRequestTimeAccuracy) {
+                // Wait for activity on any curl_multi connection when curl_multi_select (libcurl) fails to correctly
+                // block.
+                // https://bugs.php.net/bug.php?id=63411
+                //
+                // Also, use a shorter curl_multi_select() timeout instead the default of one second. This allows
+                // pending requests to have more accurate start times. Without a shorter timeout, it can be nearly a
+                // full second before available request quota is rechecked and pending requests can be initialized.
+                if (curl_multi_select($this->multiCurl, 0.2) === -1) {
+                    usleep(100000);
+                }
+
+                curl_multi_exec($this->multiCurl, $active);
+            } else {
+                // Use multiple loops to get data off of the multi handler. Without this, the following error may appear
+                // intermittently on certain versions of PHP:
+                //   curl_multi_exec(): supplied resource is not a valid cURL handle resource
+
+                // Clear out the curl buffer.
+                do {
+                    $status = curl_multi_exec($this->multiCurl, $active);
+                } while ($status === CURLM_CALL_MULTI_PERFORM);
+
+                // Wait for more information and then get that information.
+                while ($active && $status === CURLM_OK) {
+                    // Check if the network socket has some data.
+                    if (curl_multi_select($this->multiCurl) !== -1) {
+                        // Process the data for as long as the system tells us to keep getting it.
+                        do {
+                            $status = curl_multi_exec($this->multiCurl, $active);
+                        } while ($status === CURLM_CALL_MULTI_PERFORM);
+                    }
+                }
             }
 
-            curl_multi_exec($this->multiCurl, $active);
-
-            while (($info_array = curl_multi_info_read($this->multiCurl)) !== false) {
+            while ((is_resource($this->multiCurl) || $this->multiCurl instanceof \CurlMultiHandle) &&
+                (($info_array = curl_multi_info_read($this->multiCurl)) !== false)) {
                 if ($info_array['msg'] === CURLMSG_DONE) {
                     foreach ($this->activeCurls as $key => $curl) {
                         if ($curl->curl === $info_array['handle']) {
@@ -1009,10 +1034,35 @@ class MultiCurl
                     }
                 }
             }
-        } while ($active || count($this->activeCurls) || count($this->curls));
+        } while ($active || count($this->activeCurls) || count($this->queuedCurls));
 
         $this->isStarted = false;
         $this->stopTime = microtime(true);
+    }
+
+    /**
+     * Stop
+     *
+     * @access public
+     */
+    public function stop()
+    {
+        // Remove any queued curl requests.
+        while (count($this->queuedCurls)) {
+            $curl = array_pop($this->queuedCurls);
+            $curl->close();
+        }
+
+        // Attempt to stop active curl requests.
+        while (count($this->activeCurls)) {
+            // Remove instance from active curls.
+            $curl = array_pop($this->activeCurls);
+
+            // Remove active curl handle.
+            curl_multi_remove_handle($this->multiCurl, $curl->curl);
+
+            $curl->stop();
+        }
     }
 
     /**
@@ -1122,6 +1172,16 @@ class MultiCurl
     }
 
     /**
+     * Set request time accuracy
+     *
+     * @access public
+     */
+    public function setRequestTimeAccuracy()
+    {
+        $this->preferRequestTimeAccuracy = true;
+    }
+
+    /**
      * Destruct
      *
      * @access public
@@ -1138,7 +1198,7 @@ class MultiCurl
      */
     private function updateHeaders()
     {
-        foreach ($this->curls as $curl) {
+        foreach ($this->queuedCurls as $curl) {
             $curl->setHeaders($this->headers);
         }
     }
@@ -1154,7 +1214,7 @@ class MultiCurl
         // Use sequential ids to allow for ordered post processing.
         $curl->id = $this->nextCurlId++;
         $curl->childOfMultiCurl = true;
-        $this->curls[$curl->id] = $curl;
+        $this->queuedCurls[$curl->id] = $curl;
 
         $curl->setHeaders($this->headers);
     }
@@ -1168,7 +1228,7 @@ class MultiCurl
      */
     private function initHandle()
     {
-        $curl = array_shift($this->curls);
+        $curl = array_shift($this->queuedCurls);
         if ($curl === null) {
             return;
         }

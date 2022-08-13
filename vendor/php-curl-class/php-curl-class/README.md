@@ -34,7 +34,7 @@ For latest commit version:
 
 ### Requirements
 
-PHP Curl Class works with PHP 7.0, 7.1, 7.2, 7.3, 7.4, and 8.0.
+PHP Curl Class works with PHP 7.0, 7.1, 7.2, 7.3, 7.4, 8.0, and 8.1.
 
 ### Quick Start and Examples
 
@@ -290,10 +290,12 @@ Curl::setRange($range)
 Curl::setReferer($referer)
 Curl::setReferrer($referrer)
 Curl::setRetry($mixed)
+Curl::setStop($callback = null)
 Curl::setTimeout($seconds)
 Curl::setUrl($url, $mixed_data = '')
 Curl::setUserAgent($user_agent)
 Curl::setXmlDecoder($mixed)
+Curl::stop()
 Curl::success($callback)
 Curl::unsetHeader($key)
 Curl::unsetProxy()
@@ -348,12 +350,14 @@ MultiCurl::setRange($range)
 MultiCurl::setRateLimit($rate_limit)
 MultiCurl::setReferer($referer)
 MultiCurl::setReferrer($referrer)
+MultiCurl::setRequestTimeAccuracy()
 MultiCurl::setRetry($mixed)
 MultiCurl::setTimeout($seconds)
 MultiCurl::setUrl($url, $mixed_data = '')
 MultiCurl::setUserAgent($user_agent)
 MultiCurl::setXmlDecoder($mixed)
 MultiCurl::start()
+MultiCurl::stop()
 MultiCurl::success($callback)
 MultiCurl::unsetHeader($key)
 MultiCurl::unsetProxy()

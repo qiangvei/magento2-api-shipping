@@ -4,6 +4,43 @@ PHP Curl Class uses semantic versioning with version numbers written as `MAJOR.M
 `MINOR` and `PATCH` version changes. It is recommended to review `MAJOR` changes prior to upgrade as there may be
 backwards-incompatible changes that will affect existing usage.
 
+## 9.6.1 - 2022-06-30
+
+### Fixed
+
+- Attempt to stop active requests when `MultiCurl::stop()` is called
+  [#714](https://github.com/php-curl-class/php-curl-class/issues/714)
+  [#718](https://github.com/php-curl-class/php-curl-class/issues/718)
+- Retain keys for arrays with null values when building post data
+  [#712](https://github.com/php-curl-class/php-curl-class/issues/712)
+
+## 9.6.0 - 2022-03-17
+
+### Added
+
+- Method `MultiCurl::stop()` for stopping subsequent requests
+  [#708](https://github.com/php-curl-class/php-curl-class/issues/708)
+
+## 9.5.1 - 2021-12-14
+
+### Fixed
+
+- Silence PHP 8.1 deprecations [#691](https://github.com/php-curl-class/php-curl-class/issues/691)
+- Remove data parameter from additional request types
+  [#689](https://github.com/php-curl-class/php-curl-class/issues/689)
+
+## 9.5.0 - 2021-11-21
+
+### Added
+
+- Method `Curl::setStop()` for stopping requests early without downloading the full response body
+  [#681](https://github.com/php-curl-class/php-curl-class/issues/681)
+
+### Fixed
+
+- Fixed constructing request url when using `MultiCurl::addPost()`
+  [#686](https://github.com/php-curl-class/php-curl-class/issues/686)
+
 ## 9.4.0 - 2021-09-04
 
 ### Changed
